@@ -1,0 +1,857 @@
+import React, { useState, useEffect } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { TrendingUp, DollarSign, Package, Activity, Moon, Sun, Settings, Newspaper, Factory, ChevronDown, ChevronUp, RefreshCw, ExternalLink, BarChart3, BookOpen, Briefcase, TrendingUp as TrendUp } from 'lucide-react';
+
+function App() {
+  const [darkMode, setDarkMode] = useState(true);
+  const [showStocksGuide, setShowStocksGuide] = useState(false);
+  const [showPortfolio, setShowPortfolio] = useState(false);
+  const [showInvestGuide, setShowInvestGuide] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [showAppGuide, setShowAppGuide] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  
+  const [copperChartPeriod, setCopperChartPeriod] = useState('1y');
+  const [silverChartPeriod, setSilverChartPeriod] = useState('1y');
+  const [goldChartPeriod, setGoldChartPeriod] = useState('1y');
+  const [copperChartExpanded, setCopperChartExpanded] = useState(false);
+  const [silverChartExpanded, setSilverChartExpanded] = useState(false);
+  const [goldChartExpanded, setGoldChartExpanded] = useState(false);
+  
+  const [tempSettings, setTempSettings] = useState({ 
+    rsiBuy: 35, 
+    rsiSell: 65,
+    dollarIndex: 100,
+    inventory: 145000,
+    pmi: 50,
+    macd: 0
+  });
+  const [tempIndicatorSettings, setTempIndicatorSettings] = useState({
+    dollarIndex: { enabled: true }, inventory: { enabled: true }, pmi: { enabled: true }, rsi: { enabled: true }, macd: { enabled: true }
+  });
+  
+  const [currentData, setCurrentData] = useState({
+    copperPrice: 0, dollarIndex: 0, inventory: 145000, pmi: 50.2, rsi: 0, macd: 0, signal: 'HOLD',
+    prevClose: 0, todayOpen: 0, todayHigh: 0, todayLow: 0, week52High: 0, week52Low: 0, yearChangePercent: 0
+  });
+
+  const [indicatorSettings, setIndicatorSettings] = useState({
+    dollarIndex: { enabled: true }, inventory: { enabled: true }, pmi: { enabled: true }, rsi: { enabled: true }, macd: { enabled: true }
+  });
+
+  const [customSettings, setCustomSettings] = useState({ 
+    rsiBuy: 35, 
+    rsiSell: 65,
+    dollarIndex: 100,
+    inventory: 145000,
+    pmi: 50,
+    macd: 0
+  });
+
+  const [fullData, setFullData] = useState([]);
+  const [silverData, setSilverData] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [signalHistory, setSignalHistory] = useState([]);
+  
+  // 한국 관련주 데이터
+  const [krStocks] = useState([
+    { type: 'ETF', name: 'KODEX 구리선물(H)', code: '138910', url: 'https://finance.naver.com/item/main.nhn?code=138910' },
+    { type: 'ETN', name: '삼성 구리 선물 ETN(H)', code: '530095', url: 'https://finance.naver.com/item/main.nhn?code=530095' },
+    { type: '주식', name: '풍산', code: '103140', url: 'https://finance.naver.com/item/main.nhn?code=103140' },
+    { type: '주식', name: 'LS', code: '006260', url: 'https://finance.naver.com/item/main.nhn?code=006260' },
+    { type: '주식', name: '고려아연', code: '010130', url: 'https://finance.naver.com/item/main.nhn?code=010130' }
+  ]);
+
+  const correlationData = [
+    { name: '은', correlation: 0.82, price: 24.5 },
+    { name: '알루미늄', correlation: 0.68, price: 2.15 },
+    { name: '아연', correlation: 0.75, price: 2.50 }
+  ];
+
+  const indicatorNames = { dollarIndex: '달러', inventory: '재고량', pmi: 'PMI', rsi: 'RSI', macd: 'MACD' };
+  
+  const getIndicatorCondition = (key) => {
+    switch(key) {
+      case 'dollarIndex': return `< ${customSettings.dollarIndex || 100}`;
+      case 'inventory': return `< ${(customSettings.inventory || 145000).toLocaleString()}`;
+      case 'pmi': return `> ${customSettings.pmi || 50}`;
+      case 'rsi': return `< ${customSettings.rsiBuy || 35}`;
+      case 'macd': return `> ${customSettings.macd || 0}`;
+      default: return '';
+    }
+  };
+
+  const getFilteredData = (period, data = fullData) => {
+    if (data.length === 0) return [];
+    let days;
+    switch(period) {
+      case '1w': days = 7; break;
+      case '1m': days = 30; break;
+      case '6m': days = 180; break;
+      case '1y': days = 365; break;
+      case '10y': days = 3650; break;
+      default: days = 365;
+    }
+    return data.slice(-days);
+  };
+
+  const calculateScore = () => {
+    let total = 0, max = 0;
+    const results = {};
+    if (indicatorSettings.dollarIndex.enabled) { max += 20; if (currentData.dollarIndex < customSettings.dollarIndex) { total += 20; results.dollarIndex = true; } else results.dollarIndex = false; }
+    if (indicatorSettings.inventory.enabled) { max += 20; if (currentData.inventory < customSettings.inventory) { total += 20; results.inventory = true; } else results.inventory = false; }
+    if (indicatorSettings.pmi.enabled) { max += 20; if (currentData.pmi > customSettings.pmi) { total += 20; results.pmi = true; } else results.pmi = false; }
+    if (indicatorSettings.rsi.enabled) { max += 20; if (currentData.rsi < customSettings.rsiBuy) { total += 20; results.rsi = true; } else results.rsi = false; }
+    if (indicatorSettings.macd.enabled) { max += 20; if (currentData.macd > customSettings.macd) { total += 20; results.macd = true; } else results.macd = false; }
+    return { score: total, maxScore: max, percentage: max > 0 ? Math.round((total / max) * 100) : 0, results };
+  };
+
+  const scoreData = calculateScore();
+
+  // 사용중인 지표 리스트 반환
+  const getActiveIndicators = () => {
+    const active = [];
+    if (indicatorSettings.dollarIndex.enabled) active.push('달러');
+    if (indicatorSettings.inventory.enabled) active.push('재고량');
+    if (indicatorSettings.pmi.enabled) active.push('PMI');
+    if (indicatorSettings.rsi.enabled) active.push('RSI');
+    if (indicatorSettings.macd.enabled) active.push('MACD');
+    return active.length === 5 ? '전체 5개' : active.join(', ');
+  };
+
+  // 히스토리 저장
+  const saveToHistory = (data, score, signal) => {
+    const today = new Date().toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
+    const newEntry = {
+      date: today,
+      signal: signal,
+      score: score.score,
+      maxScore: score.maxScore,
+      price: data.copperPrice,
+      indicators: getActiveIndicators()
+    };
+    
+    const saved = localStorage.getItem('copperHistory');
+    let history = saved ? JSON.parse(saved) : [];
+    
+    // 같은 날짜 있으면 업데이트
+    const existingIndex = history.findIndex(h => h.date === today);
+    if (existingIndex >= 0) {
+      history[existingIndex] = newEntry;
+    } else {
+      history.unshift(newEntry);
+    }
+    
+    // 최근 5일만 유지
+    history = history.slice(0, 5);
+    
+    localStorage.setItem('copperHistory', JSON.stringify(history));
+    setSignalHistory(history);
+  };
+
+  // LocalStorage에서 설정 및 히스토리 불러오기
+  useEffect(() => {
+    const saved = localStorage.getItem('copperAppSettings');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.customSettings) {
+          // 기존 설정과 새 기본값 병합
+          setCustomSettings(prev => ({
+            ...prev,
+            ...parsed.customSettings
+          }));
+        }
+        if (parsed.indicatorSettings) setIndicatorSettings(prev => ({ ...prev, ...parsed.indicatorSettings }));
+      } catch (e) { console.log('설정 불러오기 실패'); }
+    }
+    
+    const historyData = localStorage.getItem('copperHistory');
+    if (historyData) {
+      setSignalHistory(JSON.parse(historyData));
+    }
+  }, []);
+
+  // 앱 시작 시 자동 새로고침
+  useEffect(() => {
+    refreshData();
+  }, []);
+
+  const refreshData = async () => {
+    setIsLoading(true);
+    try {
+      const proxyUrl = 'https://corsproxy.io/?';
+      const [copperRes, dollarRes, goldRes, silverRes] = await Promise.all([
+        fetch(proxyUrl + encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/HG=F?interval=1d&range=10y')),
+        fetch(proxyUrl + encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/DX-Y.NYB?interval=1d&range=10y')),
+        fetch(proxyUrl + encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=10y')),
+        fetch(proxyUrl + encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/SI=F?interval=1d&range=10y'))
+      ]);
+      
+      const copperData = await copperRes.json();
+      const dollarData = await dollarRes.json();
+      const goldData = await goldRes.json();
+      const silverDataRes = await silverRes.json();
+      
+      const copperMeta = copperData?.chart?.result?.[0]?.meta || {};
+      const copperPrice = copperMeta.regularMarketPrice || 0;
+      const dollarIndex = dollarData?.chart?.result?.[0]?.meta?.regularMarketPrice || 0;
+      
+      const copperPrices = copperData?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
+      const copperOpens = copperData?.chart?.result?.[0]?.indicators?.quote?.[0]?.open || [];
+      const copperHighs = copperData?.chart?.result?.[0]?.indicators?.quote?.[0]?.high || [];
+      const copperLows = copperData?.chart?.result?.[0]?.indicators?.quote?.[0]?.low || [];
+      const validPrices = copperPrices.filter(p => p !== null);
+      
+      const rsi = calculateRSI(validPrices, 14);
+      const macd = calculateMACD(validPrices);
+      
+      // 구리 상세 데이터 - 직접 계산
+      const prevClose = validPrices.length >= 2 ? validPrices[validPrices.length - 2] : 0;
+      const todayOpen = copperOpens.length > 0 ? copperOpens[copperOpens.length - 1] || 0 : 0;
+      const todayHigh = copperHighs.length > 0 ? copperHighs[copperHighs.length - 1] || 0 : 0;
+      const todayLow = copperLows.length > 0 ? copperLows[copperLows.length - 1] || 0 : 0;
+      const week52High = copperMeta.fiftyTwoWeekHigh || Math.max(...validPrices.slice(-252));
+      const week52Low = copperMeta.fiftyTwoWeekLow || Math.min(...validPrices.slice(-252).filter(p => p > 0));
+      const yearAgoPrice = validPrices[validPrices.length - 252] || validPrices[0] || copperPrice;
+      const yearChangePercent = yearAgoPrice > 0 ? ((copperPrice - yearAgoPrice) / yearAgoPrice * 100) : 0;
+      
+      // 차트 데이터
+      const timestamps = copperData?.chart?.result?.[0]?.timestamp || [];
+      const goldPrices = goldData?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
+      const silverPrices = silverDataRes?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
+      
+      const chartData = timestamps.map((ts, i) => ({
+        date: new Date(ts * 1000).toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' }),
+        copper: copperPrices[i] ? parseFloat(copperPrices[i].toFixed(2)) : null,
+        gold: goldPrices[i] ? parseFloat(goldPrices[i].toFixed(0)) : null
+      })).filter(d => d.copper !== null);
+      
+      const silverChartData = timestamps.map((ts, i) => ({
+        date: new Date(ts * 1000).toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' }),
+        silver: silverPrices[i] ? parseFloat(silverPrices[i].toFixed(2)) : null
+      })).filter(d => d.silver !== null);
+      
+      setFullData(chartData);
+      setSilverData(silverChartData);
+      
+      // 신호 판단
+      let buyConditions = 0, totalConditions = 0;
+      if (indicatorSettings.rsi.enabled) { totalConditions++; if (rsi < customSettings.rsiBuy) buyConditions++; }
+      if (indicatorSettings.dollarIndex.enabled) { totalConditions++; if (dollarIndex < customSettings.dollarIndex) buyConditions++; }
+      if (indicatorSettings.macd.enabled) { totalConditions++; if (macd > customSettings.macd) buyConditions++; }
+      if (indicatorSettings.pmi.enabled) { totalConditions++; if (currentData.pmi > customSettings.pmi) buyConditions++; }
+      if (indicatorSettings.inventory.enabled) { totalConditions++; if (currentData.inventory < customSettings.inventory) buyConditions++; }
+
+      let signal = 'HOLD';
+      const ratio = totalConditions > 0 ? buyConditions / totalConditions : 0;
+      if (ratio >= 0.6) signal = 'BUY';
+      else if (rsi > customSettings.rsiSell && macd < 0) signal = 'SELL';
+      
+      const newData = {
+        copperPrice: parseFloat(copperPrice.toFixed(2)),
+        dollarIndex: parseFloat(dollarIndex.toFixed(1)),
+        inventory: currentData.inventory,
+        pmi: currentData.pmi,
+        rsi: parseFloat(rsi.toFixed(1)),
+        macd: parseFloat(macd.toFixed(2)),
+        signal,
+        prevClose: parseFloat(prevClose.toFixed(3)),
+        todayOpen: parseFloat(todayOpen.toFixed(3)),
+        todayHigh: parseFloat(todayHigh.toFixed(3)),
+        todayLow: parseFloat(todayLow.toFixed(3)),
+        week52High: parseFloat(week52High.toFixed(2)),
+        week52Low: parseFloat(week52Low.toFixed(2)),
+        yearChangePercent: parseFloat(yearChangePercent.toFixed(2))
+      };
+      
+      setCurrentData(newData);
+      setLastUpdated(new Date().toLocaleTimeString('ko-KR'));
+      
+      // 히스토리 저장
+      const newScore = { score: 0, maxScore: 0 };
+      let t = 0, m = 0;
+      if (indicatorSettings.dollarIndex.enabled) { m += 20; if (dollarIndex < customSettings.dollarIndex) t += 20; }
+      if (indicatorSettings.inventory.enabled) { m += 20; if (currentData.inventory < customSettings.inventory) t += 20; }
+      if (indicatorSettings.pmi.enabled) { m += 20; if (currentData.pmi > customSettings.pmi) t += 20; }
+      if (indicatorSettings.rsi.enabled) { m += 20; if (rsi < customSettings.rsiBuy) t += 20; }
+      if (indicatorSettings.macd.enabled) { m += 20; if (macd > customSettings.macd) t += 20; }
+      newScore.score = t;
+      newScore.maxScore = m;
+      
+      saveToHistory(newData, newScore, signal);
+      setToastMessage('최신 데이터로 업데이트되었습니다');
+    } catch (error) {
+      console.error('API 호출 실패:', error);
+      setToastMessage('데이터를 가져오는데 실패했습니다.');
+    }
+    setIsLoading(false);
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), 2000);
+  };
+  
+  const calculateRSI = (prices, period = 14) => {
+    if (prices.length < period + 1) return 50;
+    const changes = [];
+    for (let i = 1; i < prices.length; i++) changes.push(prices[i] - prices[i - 1]);
+    const recent = changes.slice(-period);
+    let gains = 0, losses = 0;
+    recent.forEach(c => { if (c > 0) gains += c; else losses += Math.abs(c); });
+    const avgGain = gains / period, avgLoss = losses / period;
+    if (avgLoss === 0) return 100;
+    return 100 - (100 / (1 + avgGain / avgLoss));
+  };
+  
+  const calculateMACD = (prices) => {
+    if (prices.length < 26) return 0;
+    return calculateEMA(prices, 12) - calculateEMA(prices, 26);
+  };
+  
+  const calculateEMA = (prices, period) => {
+    if (prices.length < period) return prices[prices.length - 1] || 0;
+    const k = 2 / (period + 1);
+    let ema = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    for (let i = period; i < prices.length; i++) ema = prices[i] * k + ema * (1 - k);
+    return ema;
+  };
+
+  const toggleTempIndicator = (key) => setTempIndicatorSettings(prev => ({ ...prev, [key]: { enabled: !prev[key].enabled } }));
+
+  const saveSettings = () => {
+    setCustomSettings({...tempSettings});
+    setIndicatorSettings(prev => {
+      const newSettings = {...prev};
+      Object.keys(tempIndicatorSettings).forEach(key => { newSettings[key] = { ...newSettings[key], enabled: tempIndicatorSettings[key].enabled }; });
+      localStorage.setItem('copperAppSettings', JSON.stringify({ customSettings: tempSettings, indicatorSettings: newSettings }));
+      return newSettings;
+    });
+    setToastMessage('설정이 저장되었습니다');
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), 2000);
+    setShowSettings(false);
+  };
+
+  useEffect(() => {
+    if (showSettings) {
+      setTempSettings({...customSettings});
+      setTempIndicatorSettings({ dollarIndex: { enabled: indicatorSettings.dollarIndex.enabled }, inventory: { enabled: indicatorSettings.inventory.enabled }, pmi: { enabled: indicatorSettings.pmi.enabled }, rsi: { enabled: indicatorSettings.rsi.enabled }, macd: { enabled: indicatorSettings.macd.enabled } });
+    }
+  }, [showSettings]);
+
+  const getTabStyle = (isActive) => ({ padding: '6px 12px', fontSize: '12px', border: 'none', borderRadius: '6px', cursor: 'pointer', backgroundColor: isActive ? '#3b82f6' : (darkMode ? '#334155' : '#e5e7eb'), color: isActive ? 'white' : (darkMode ? '#94a3b8' : '#6b7280'), fontWeight: isActive ? '600' : '400' });
+  const getPeriodLabel = (p) => { switch(p) { case '1w': return '1주일'; case '1m': return '1개월'; case '6m': return '6개월'; case '1y': return '1년'; case '10y': return '10년'; default: return '1년'; } };
+  const getSignalText = (s) => s === 'BUY' ? '매수 신호' : s === 'SELL' ? '매도 신호' : '관망';
+  const getRecommendation = () => { if (scoreData.percentage >= 80) return '적극 매수 권장'; if (scoreData.percentage >= 60) return '매수 적합'; if (scoreData.percentage >= 40) return '분할 매수 고려'; return '관망 권장'; };
+
+  const styles = {
+    app: { minHeight: '100vh', background: darkMode ? 'linear-gradient(to bottom right, #0f172a, #1e293b, #0f172a)' : '#f9fafb', padding: '20px 16px' },
+    container: { maxWidth: '600px', margin: '0 auto', width: '100%' },
+    header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' },
+    title: { fontSize: '28px', fontWeight: 'bold', color: darkMode ? 'white' : '#111827', marginBottom: '4px' },
+    subtitle: { color: darkMode ? '#94a3b8' : '#6b7280', fontSize: '14px' },
+    buttonGroup: { display: 'flex', gap: '8px' },
+    button: { padding: '10px', borderRadius: '8px', border: 'none', cursor: 'pointer', backgroundColor: darkMode ? '#334155' : '#e5e7eb', color: darkMode ? 'white' : '#111827' },
+    signalCard: { background: currentData.signal === 'BUY' ? '#22c55e' : currentData.signal === 'SELL' ? '#ef4444' : '#eab308', borderRadius: '16px', padding: '24px', marginBottom: '16px', color: 'white', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.3)' },
+    card: { backgroundColor: darkMode ? '#1e293b' : 'white', border: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`, borderRadius: '12px', padding: '16px', marginBottom: '16px' },
+    grid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '16px' },
+    metricCard: { backgroundColor: darkMode ? '#1e293b' : 'white', border: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`, borderRadius: '12px', padding: '12px', cursor: 'pointer', textDecoration: 'none', color: 'inherit', display: 'block' },
+    metricValue: { fontSize: '20px', fontWeight: 'bold', color: darkMode ? 'white' : '#111827', marginTop: '6px' },
+    sectionTitle: { color: darkMode ? 'white' : '#111827', fontWeight: 'bold', fontSize: '16px', margin: 0 },
+    newsItem: { backgroundColor: darkMode ? '#0f172a' : '#f9fafb', padding: '12px', borderRadius: '8px', marginBottom: '8px' },
+    toggle: { width: '44px', height: '24px', borderRadius: '12px', cursor: 'pointer', position: 'relative' },
+    toggleKnob: { width: '20px', height: '20px', borderRadius: '50%', backgroundColor: 'white', position: 'absolute', top: '2px', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' },
+    performanceItem: { backgroundColor: darkMode ? '#0f172a' : '#f3f4f6', padding: '12px', borderRadius: '8px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+    table: { width: '100%', borderCollapse: 'collapse', fontSize: '13px' },
+    th: { padding: '10px 8px', textAlign: 'left', borderBottom: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`, color: darkMode ? '#94a3b8' : '#6b7280', fontWeight: '600' },
+    td: { padding: '10px 8px', borderBottom: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`, color: darkMode ? '#e2e8f0' : '#374151' }
+  };
+
+  return (
+    <div style={styles.app}>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      
+      <div style={styles.container}>
+        {showToast && <div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#22c55e', color: 'white', padding: '12px 24px', borderRadius: '8px', fontSize: '14px', fontWeight: '500', boxShadow: '0 4px 12px rgba(0,0,0,0.3)', zIndex: 1000 }}>✓ {toastMessage}</div>}
+        
+        <div style={styles.header}>
+          <div>
+            <h1 style={styles.title}>구리 매수 시점 분석</h1>
+            <p style={styles.subtitle}>{lastUpdated ? `마지막 업데이트: ${lastUpdated}` : '데이터 로딩 중...'}</p>
+          </div>
+          <div style={styles.buttonGroup}>
+            <button onClick={() => setDarkMode(!darkMode)} style={styles.button}>{darkMode ? <Sun size={18} /> : <Moon size={18} />}</button>
+            <button onClick={refreshData} style={{...styles.button, opacity: isLoading ? 0.6 : 1}} disabled={isLoading}><RefreshCw size={18} style={{animation: isLoading ? 'spin 1s linear infinite' : 'none'}} /></button>
+            <button onClick={() => setShowSettings(!showSettings)} style={styles.button}><Settings size={18} /></button>
+          </div>
+        </div>
+
+        <div style={styles.signalCard}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div><h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '4px' }}>{getSignalText(currentData.signal)}</h2><p style={{opacity: 0.8, margin: 0, fontSize: '13px'}}>종합 분석 결과 (설정 지표 기준)</p></div>
+            <a href="https://finance.yahoo.com/quote/HG=F/" target="_blank" rel="noopener noreferrer" style={{textAlign: 'right', textDecoration: 'none', color: 'white'}}>
+              <div style={{ fontSize: '40px', fontWeight: 'bold' }}>${currentData.copperPrice}</div>
+              <div style={{opacity: 0.8, fontSize: '13px'}}>현재 구리 가격 (Yahoo Finance) ↗</div>
+            </a>
+          </div>
+        </div>
+
+        {/* 구리 금일 현황 */}
+        <div style={styles.card}>
+          <h3 style={{...styles.sectionTitle, marginBottom: '4px'}}>📈 구리 금일 현황</h3>
+          <p style={{fontSize: '11px', color: darkMode ? '#94a3b8' : '#6b7280', margin: '0 0 12px 0'}}>※ Yahoo Finance 기준, 실제와 차이 있을 수 있음</p>
+          <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px'}}>
+            <div style={{padding: '10px', backgroundColor: darkMode ? '#0f172a' : '#f3f4f6', borderRadius: '8px'}}>
+              <div style={{fontSize: '11px', color: darkMode ? '#94a3b8' : '#6b7280'}}>전일 종가</div>
+              <div style={{fontSize: '16px', fontWeight: 'bold', color: darkMode ? 'white' : '#111827'}}>${currentData.prevClose}</div>
+            </div>
+            <div style={{padding: '10px', backgroundColor: darkMode ? '#0f172a' : '#f3f4f6', borderRadius: '8px'}}>
+              <div style={{fontSize: '11px', color: darkMode ? '#94a3b8' : '#6b7280'}}>금일 시가</div>
+              <div style={{fontSize: '16px', fontWeight: 'bold', color: darkMode ? 'white' : '#111827'}}>${currentData.todayOpen}</div>
+            </div>
+            <div style={{padding: '10px', backgroundColor: darkMode ? '#0f172a' : '#f3f4f6', borderRadius: '8px'}}>
+              <div style={{fontSize: '11px', color: darkMode ? '#94a3b8' : '#6b7280'}}>금일 변동</div>
+              <div style={{fontSize: '16px', fontWeight: 'bold', color: darkMode ? 'white' : '#111827'}}>${currentData.todayLow}~{currentData.todayHigh}</div>
+            </div>
+            <div style={{padding: '10px', backgroundColor: darkMode ? '#0f172a' : '#f3f4f6', borderRadius: '8px'}}>
+              <div style={{fontSize: '11px', color: darkMode ? '#94a3b8' : '#6b7280'}}>52주 범위</div>
+              <div style={{fontSize: '16px', fontWeight: 'bold', color: darkMode ? 'white' : '#111827'}}>${currentData.week52Low}~{currentData.week52High}</div>
+            </div>
+            <div style={{padding: '10px', backgroundColor: darkMode ? '#0f172a' : '#f3f4f6', borderRadius: '8px', gridColumn: 'span 2'}}>
+              <div style={{fontSize: '11px', color: darkMode ? '#94a3b8' : '#6b7280'}}>1년 변동률</div>
+              <div style={{fontSize: '18px', fontWeight: 'bold', color: currentData.yearChangePercent >= 0 ? '#22c55e' : '#ef4444'}}>{currentData.yearChangePercent >= 0 ? '+' : ''}{currentData.yearChangePercent}%</div>
+            </div>
+          </div>
+        </div>
+
+        {/* 상세 분석 */}
+        <div style={{...styles.card, background: darkMode ? 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)' : 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)', borderColor: darkMode ? '#3b82f6' : '#93c5fd'}}>
+          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
+            <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+              <span style={{fontSize: '24px'}}>📊</span>
+              <div><div style={{fontSize: '18px', fontWeight: 'bold', color: darkMode ? '#93c5fd' : '#1e40af'}}>점수: {scoreData.score}점 / {scoreData.maxScore}점</div><div style={{fontSize: '12px', color: darkMode ? '#bfdbfe' : '#3b82f6'}}>{getRecommendation()}</div></div>
+            </div>
+            <div style={{fontSize: '24px', fontWeight: 'bold', color: darkMode ? '#93c5fd' : '#1e40af'}}>{scoreData.percentage}%</div>
+          </div>
+          <div style={{fontSize: '13px', color: darkMode ? '#e0e7ff' : '#1e40af', lineHeight: '1.6', marginBottom: '12px'}}>{scoreData.percentage >= 60 ? '활성화된 지표들이 매수 조건을 충족하고 있습니다.' : '추세는 유지되지만 모멘텀이 둔화되어 현재는 관망이 유리합니다.'}</div>
+          <div style={{display: 'flex', flexWrap: 'wrap', gap: '6px'}}>
+            {Object.entries(indicatorSettings).map(([key, setting]) => {
+              if (!setting.enabled) return null;
+              const passed = scoreData.results[key];
+              return <span key={key} style={{fontSize: '11px', padding: '4px 8px', borderRadius: '4px', backgroundColor: passed ? (darkMode ? '#166534' : '#bbf7d0') : (darkMode ? '#7c2d12' : '#fed7aa'), color: passed ? (darkMode ? '#bbf7d0' : '#166534') : (darkMode ? '#fed7aa' : '#7c2d12')}}>{passed ? '✓' : '✗'} {indicatorNames[key]} {getIndicatorCondition(key)}</span>;
+            })}
+          </div>
+        </div>
+
+        {/* 설정하기 버튼 */}
+        <button onClick={() => setShowSettings(!showSettings)} style={{width: '100%', padding: '14px', borderRadius: '10px', border: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`, backgroundColor: darkMode ? '#1e293b' : 'white', color: darkMode ? 'white' : '#111827', fontSize: '15px', fontWeight: '600', cursor: 'pointer', marginBottom: '16px'}}>
+          ⚙️ 설정하기
+        </button>
+
+        {showSettings && (
+          <div style={styles.card}>
+            <h3 style={styles.sectionTitle}>커스텀 기준 분석 결과</h3>
+            <p style={{fontSize: '11px', color: darkMode ? '#94a3b8' : '#6b7280', margin: '4px 0 16px 0'}}>※ 각 지표의 기준값과 활성화 여부를 설정하세요</p>
+            
+            <div style={{marginBottom: '20px'}}>
+              <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px'}}>
+                <div><label style={{fontSize: '12px', color: darkMode ? '#94a3b8' : '#6b7280', display: 'block', marginBottom: '4px'}}>달러 인덱스 &lt;</label><input type="number" value={tempSettings.dollarIndex} onChange={(e) => setTempSettings({...tempSettings, dollarIndex: parseFloat(e.target.value)})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #334155', backgroundColor: darkMode ? '#0f172a' : '#fff', color: darkMode ? '#fff' : '#000', boxSizing: 'border-box'}} /></div>
+                <div><label style={{fontSize: '12px', color: darkMode ? '#94a3b8' : '#6b7280', display: 'block', marginBottom: '4px'}}>재고량 &lt;</label><input type="number" value={tempSettings.inventory} onChange={(e) => setTempSettings({...tempSettings, inventory: parseFloat(e.target.value)})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #334155', backgroundColor: darkMode ? '#0f172a' : '#fff', color: darkMode ? '#fff' : '#000', boxSizing: 'border-box'}} /></div>
+              </div>
+              <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px'}}>
+                <div><label style={{fontSize: '12px', color: darkMode ? '#94a3b8' : '#6b7280', display: 'block', marginBottom: '4px'}}>중국 PMI &gt;</label><input type="number" value={tempSettings.pmi} onChange={(e) => setTempSettings({...tempSettings, pmi: parseFloat(e.target.value)})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #334155', backgroundColor: darkMode ? '#0f172a' : '#fff', color: darkMode ? '#fff' : '#000', boxSizing: 'border-box'}} /></div>
+                <div><label style={{fontSize: '12px', color: darkMode ? '#94a3b8' : '#6b7280', display: 'block', marginBottom: '4px'}}>MACD &gt;</label><input type="number" step="0.01" value={tempSettings.macd} onChange={(e) => setTempSettings({...tempSettings, macd: parseFloat(e.target.value)})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #334155', backgroundColor: darkMode ? '#0f172a' : '#fff', color: darkMode ? '#fff' : '#000', boxSizing: 'border-box'}} /></div>
+              </div>
+              <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px'}}>
+                <div><label style={{fontSize: '12px', color: darkMode ? '#94a3b8' : '#6b7280', display: 'block', marginBottom: '4px'}}>RSI 매수 &lt;</label><input type="number" value={tempSettings.rsiBuy} onChange={(e) => setTempSettings({...tempSettings, rsiBuy: parseFloat(e.target.value)})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #334155', backgroundColor: darkMode ? '#0f172a' : '#fff', color: darkMode ? '#fff' : '#000', boxSizing: 'border-box'}} /></div>
+                <div><label style={{fontSize: '12px', color: darkMode ? '#94a3b8' : '#6b7280', display: 'block', marginBottom: '4px'}}>RSI 매도 &gt;</label><input type="number" value={tempSettings.rsiSell} onChange={(e) => setTempSettings({...tempSettings, rsiSell: parseFloat(e.target.value)})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #334155', backgroundColor: darkMode ? '#0f172a' : '#fff', color: darkMode ? '#fff' : '#000', boxSizing: 'border-box'}} /></div>
+              </div>
+            </div>
+            
+            <div style={{borderTop: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`, paddingTop: '16px'}}>
+              <div style={{fontSize: '14px', fontWeight: '600', color: darkMode ? '#e2e8f0' : '#374151', marginBottom: '12px'}}>지표 활성화</div>
+              {Object.entries(tempIndicatorSettings).map(([key, setting]) => (
+                <div key={key} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`}}>
+                  <div><div style={{fontSize: '14px', color: darkMode ? 'white' : '#111827'}}>{indicatorNames[key]}</div><div style={{fontSize: '11px', color: darkMode ? '#94a3b8' : '#6b7280'}}>조건: {getIndicatorCondition(key)}</div></div>
+                  <div onClick={() => toggleTempIndicator(key)} style={{...styles.toggle, backgroundColor: setting.enabled ? '#22c55e' : (darkMode ? '#475569' : '#d1d5db')}}><div style={{...styles.toggleKnob, left: setting.enabled ? '22px' : '2px'}} /></div>
+                </div>
+              ))}
+            </div>
+            <button onClick={saveSettings} style={{width: '100%', marginTop: '20px', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: '#3b82f6', color: 'white', fontSize: '14px', fontWeight: '600', cursor: 'pointer'}}>💾 저장하기</button>
+          </div>
+        )}
+
+        {/* 매수시점 히스토리 */}
+        <div style={styles.card}>
+          <div onClick={() => setShowHistory(!showHistory)} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer'}}>
+            <h3 style={styles.sectionTitle}>📅 매수시점 히스토리 (최근 5일)</h3>
+            {showHistory ? <ChevronUp size={20} color={darkMode ? '#94a3b8' : '#6b7280'} /> : <ChevronDown size={20} color={darkMode ? '#94a3b8' : '#6b7280'} />}
+          </div>
+          {showHistory && (
+            <div style={{marginTop: '12px', overflowX: 'auto'}}>
+              {signalHistory.length > 0 ? (
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>날짜</th>
+                      <th style={styles.th}>신호</th>
+                      <th style={styles.th}>점수</th>
+                      <th style={styles.th}>구리가격</th>
+                      <th style={styles.th}>사용 지표</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {signalHistory.map((h, i) => (
+                      <tr key={i}>
+                        <td style={styles.td}>{h.date}</td>
+                        <td style={{...styles.td, color: h.signal === 'BUY' ? '#22c55e' : h.signal === 'SELL' ? '#ef4444' : '#eab308', fontWeight: 'bold'}}>{h.signal === 'BUY' ? '매수' : h.signal === 'SELL' ? '매도' : '관망'}</td>
+                        <td style={styles.td}>{h.score}점</td>
+                        <td style={styles.td}>${h.price}</td>
+                        <td style={{...styles.td, fontSize: '11px'}}>{h.indicators}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div style={{textAlign: 'center', padding: '20px', color: darkMode ? '#94a3b8' : '#6b7280', fontSize: '14px'}}>아직 히스토리가 없습니다. 새로고침 후 기록됩니다.</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* 지표 카드 */}
+        <div style={styles.grid}>
+          {indicatorSettings.dollarIndex.enabled && <a href="https://www.investing.com/indices/usdollar" target="_blank" rel="noopener noreferrer" style={styles.metricCard}><div style={{display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px'}}><DollarSign size={14} color="#3b82f6" /><span style={{fontSize: '12px', color: darkMode ? '#94a3b8' : '#6b7280'}}>달러 인덱스</span></div><div style={styles.metricValue}>{currentData.dollarIndex}</div></a>}
+          {indicatorSettings.inventory.enabled && <a href="https://en.macromicro.me/series/3613/copper-lme-warehouse-stock" target="_blank" rel="noopener noreferrer" style={styles.metricCard}><div style={{display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px'}}><Package size={14} color="#a855f7" /><span style={{fontSize: '12px', color: darkMode ? '#94a3b8' : '#6b7280'}}>재고량</span></div><div style={styles.metricValue}>{Math.round(currentData.inventory).toLocaleString()}</div></a>}
+          {indicatorSettings.pmi.enabled && <a href="https://www.tradingeconomics.com/china/manufacturing-pmi" target="_blank" rel="noopener noreferrer" style={styles.metricCard}><div style={{display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px'}}><Factory size={14} color="#f59e0b" /><span style={{fontSize: '12px', color: darkMode ? '#94a3b8' : '#6b7280'}}>중국 PMI</span></div><div style={styles.metricValue}>{currentData.pmi.toFixed(1)}</div></a>}
+          {indicatorSettings.rsi.enabled && <a href="https://www.tradingview.com/symbols/COMEX-HG1!/technicals/" target="_blank" rel="noopener noreferrer" style={styles.metricCard}><div style={{display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px'}}><Activity size={14} color="#22c55e" /><span style={{fontSize: '12px', color: darkMode ? '#94a3b8' : '#6b7280'}}>RSI</span></div><div style={styles.metricValue}>{currentData.rsi}</div></a>}
+          {indicatorSettings.macd.enabled && <a href="https://www.tradingview.com/symbols/COMEX-HG1!/technicals/" target="_blank" rel="noopener noreferrer" style={styles.metricCard}><div style={{display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px'}}><TrendingUp size={14} color="#eab308" /><span style={{fontSize: '12px', color: darkMode ? '#94a3b8' : '#6b7280'}}>MACD</span></div><div style={styles.metricValue}>{currentData.macd}</div></a>}
+        </div>
+
+        {/* 구리 차트 */}
+        <div style={styles.card}>
+          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}><h3 style={styles.sectionTitle}>구리 {getPeriodLabel(copperChartPeriod)} 추이</h3><span onClick={() => setCopperChartExpanded(!copperChartExpanded)} style={{fontSize: '12px', color: '#3b82f6', cursor: 'pointer'}}>{copperChartExpanded ? '축소' : '확대'}</span></div>
+          <div style={{display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap'}}>{['1w', '1m', '6m', '1y', '10y'].map(p => <button key={p} onClick={() => setCopperChartPeriod(p)} style={getTabStyle(copperChartPeriod === p)}>{getPeriodLabel(p)}</button>)}</div>
+          <p style={{fontSize: '11px', color: darkMode ? '#94a3b8' : '#6b7280', margin: '0 0 12px 0'}}>※ 실제 가격 ($/lb) - 클릭하여 {copperChartExpanded ? '축소' : '확대'}</p>
+          <div onClick={() => setCopperChartExpanded(!copperChartExpanded)} style={{cursor: 'pointer'}}><ResponsiveContainer width="100%" height={copperChartExpanded ? 360 : 180}><LineChart data={getFilteredData(copperChartPeriod)}><CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#334155' : '#e5e7eb'} /><XAxis dataKey="date" stroke={darkMode ? '#94a3b8' : '#6b7280'} style={{fontSize: 9}} /><YAxis stroke={darkMode ? '#94a3b8' : '#6b7280'} style={{fontSize: 10}} domain={['auto', 'auto']} /><Tooltip content={({active, payload, label}) => { if (active && payload && payload.length) { return <div style={{backgroundColor: darkMode ? '#1e293b' : '#fff', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`, fontSize: '12px'}}><div style={{color: darkMode ? '#94a3b8' : '#6b7280', marginBottom: '4px'}}>{label}</div><div style={{color: '#60a5fa', fontWeight: 'bold'}}>구리: ${payload[0].value}</div></div>; } return null; }} /><Line type="monotone" dataKey="copper" stroke="#60a5fa" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer></div>
+        </div>
+
+        {/* 은 차트 */}
+        <div style={styles.card}>
+          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}><h3 style={styles.sectionTitle}>은 {getPeriodLabel(silverChartPeriod)} 추이</h3><span onClick={() => setSilverChartExpanded(!silverChartExpanded)} style={{fontSize: '12px', color: '#3b82f6', cursor: 'pointer'}}>{silverChartExpanded ? '축소' : '확대'}</span></div>
+          <div style={{display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap'}}>{['1w', '1m', '6m', '1y', '10y'].map(p => <button key={p} onClick={() => setSilverChartPeriod(p)} style={getTabStyle(silverChartPeriod === p)}>{getPeriodLabel(p)}</button>)}</div>
+          <p style={{fontSize: '11px', color: darkMode ? '#94a3b8' : '#6b7280', margin: '0 0 12px 0'}}>※ 구리와 상관관계 0.82 - 클릭하여 {silverChartExpanded ? '축소' : '확대'}</p>
+          <div onClick={() => setSilverChartExpanded(!silverChartExpanded)} style={{cursor: 'pointer'}}><ResponsiveContainer width="100%" height={silverChartExpanded ? 360 : 180}><LineChart data={getFilteredData(silverChartPeriod, silverData)}><CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#334155' : '#e5e7eb'} /><XAxis dataKey="date" stroke={darkMode ? '#94a3b8' : '#6b7280'} style={{fontSize: 9}} /><YAxis stroke={darkMode ? '#94a3b8' : '#6b7280'} style={{fontSize: 10}} domain={['auto', 'auto']} /><Tooltip content={({active, payload, label}) => { if (active && payload && payload.length) { return <div style={{backgroundColor: darkMode ? '#1e293b' : '#fff', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`, fontSize: '12px'}}><div style={{color: darkMode ? '#94a3b8' : '#6b7280', marginBottom: '4px'}}>{label}</div><div style={{color: '#94a3b8', fontWeight: 'bold'}}>은: ${payload[0].value}</div></div>; } return null; }} /><Line type="monotone" dataKey="silver" stroke="#94a3b8" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer></div>
+        </div>
+
+        {/* 아연 시세 링크 */}
+        <a href="https://kr.investing.com/commodities/zinc" target="_blank" rel="noopener noreferrer" style={{...styles.card, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#1e3a8a' : '#dbeafe', border: `1px solid ${darkMode ? '#3b82f6' : '#93c5fd'}`}}>
+          <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}><span style={{fontSize: '20px'}}>📊</span><div><div style={{color: darkMode ? 'white' : '#1e40af', fontSize: '14px', fontWeight: '600'}}>아연 선물 시세</div><div style={{color: darkMode ? '#93c5fd' : '#3b82f6', fontSize: '11px'}}>Investing.com에서 실시간 확인 (구리 상관관계 0.75)</div></div></div>
+          <ExternalLink size={16} color={darkMode ? '#93c5fd' : '#3b82f6'} />
+        </a>
+
+        {/* 금 차트 */}
+        <div style={styles.card}>
+          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}><h3 style={styles.sectionTitle}>금 {getPeriodLabel(goldChartPeriod)} 추이</h3><span onClick={() => setGoldChartExpanded(!goldChartExpanded)} style={{fontSize: '12px', color: '#3b82f6', cursor: 'pointer'}}>{goldChartExpanded ? '축소' : '확대'}</span></div>
+          <div style={{display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap'}}>{['1w', '1m', '6m', '1y', '10y'].map(p => <button key={p} onClick={() => setGoldChartPeriod(p)} style={getTabStyle(goldChartPeriod === p)}>{getPeriodLabel(p)}</button>)}</div>
+          <p style={{fontSize: '11px', color: darkMode ? '#f59e0b' : '#d97706', margin: '0 0 12px 0', backgroundColor: darkMode ? '#422006' : '#fef3c7', padding: '8px', borderRadius: '6px'}}>⚠️ 금은 안전자산으로 구리(산업용)와 상관관계가 낮습니다. 참고용으로만 활용하세요.</p>
+          <div onClick={() => setGoldChartExpanded(!goldChartExpanded)} style={{cursor: 'pointer'}}><ResponsiveContainer width="100%" height={goldChartExpanded ? 360 : 180}><LineChart data={getFilteredData(goldChartPeriod)}><CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#334155' : '#e5e7eb'} /><XAxis dataKey="date" stroke={darkMode ? '#94a3b8' : '#6b7280'} style={{fontSize: 9}} /><YAxis stroke={darkMode ? '#94a3b8' : '#6b7280'} style={{fontSize: 10}} domain={['auto', 'auto']} /><Tooltip content={({active, payload, label}) => { if (active && payload && payload.length) { return <div style={{backgroundColor: darkMode ? '#1e293b' : '#fff', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`, fontSize: '12px'}}><div style={{color: darkMode ? '#94a3b8' : '#6b7280', marginBottom: '4px'}}>{label}</div><div style={{color: '#fbbf24', fontWeight: 'bold'}}>금: ${payload[0].value}</div></div>; } return null; }} /><Line type="monotone" dataKey="gold" stroke="#fbbf24" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer></div>
+        </div>
+
+        {/* 한국에서 구리 투자 - 표 형식 */}
+        <div style={styles.card}>
+          <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px'}}><span style={{fontSize: '18px'}}>🇰🇷</span><h3 style={styles.sectionTitle}>한국에서 구리 투자</h3></div>
+          <div style={{overflowX: 'auto'}}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>종류</th>
+                  <th style={styles.th}>종목명</th>
+                  <th style={styles.th}>코드</th>
+                  <th style={styles.th}>시세</th>
+                </tr>
+              </thead>
+              <tbody>
+                {krStocks.map((stock, i) => (
+                  <tr key={i}>
+                    <td style={styles.td}>{stock.type}</td>
+                    <td style={{...styles.td, fontWeight: '500'}}>{stock.name}</td>
+                    <td style={styles.td}>{stock.code}</td>
+                    <td style={styles.td}><a href={stock.url} target="_blank" rel="noopener noreferrer" style={{color: '#3b82f6', textDecoration: 'none', fontWeight: '500'}}>확인 →</a></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p style={{fontSize: '11px', color: darkMode ? '#94a3b8' : '#6b7280', margin: '12px 0 0 0'}}>※ 각자 증권사 앱에서 검색하여 매수하세요</p>
+        </div>
+
+        {/* 뉴스 */}
+        <div style={styles.card}>
+          <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px'}}><Newspaper size={16} color="#3b82f6" /><h3 style={styles.sectionTitle}>실시간 뉴스</h3></div>
+          
+          <a href="https://kr.investing.com/commodities/copper" target="_blank" rel="noopener noreferrer" style={{...styles.newsItem, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#1e3a8a' : '#dbeafe', border: `1px solid ${darkMode ? '#3b82f6' : '#93c5fd'}`, marginBottom: '10px'}}>
+            <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}><span style={{fontSize: '20px'}}>📊</span><div><div style={{color: darkMode ? 'white' : '#1e40af', fontSize: '14px', fontWeight: '600'}}>구리 선물 시세</div><div style={{color: darkMode ? '#93c5fd' : '#3b82f6', fontSize: '11px'}}>Investing.com에서 실시간 확인</div></div></div>
+            <ExternalLink size={16} color={darkMode ? '#93c5fd' : '#3b82f6'} />
+          </a>
+          
+          <a href="https://search.naver.com/search.naver?where=news&query=구리+원자재" target="_blank" rel="noopener noreferrer" style={{...styles.newsItem, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px'}}>
+            <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}><span style={{fontSize: '20px'}}>📰</span><div><div style={{color: darkMode ? 'white' : '#111827', fontSize: '14px', fontWeight: '600'}}>구리 관련 뉴스</div><div style={{color: darkMode ? '#94a3b8' : '#6b7280', fontSize: '11px'}}>네이버 뉴스에서 확인</div></div></div>
+            <ExternalLink size={16} color={darkMode ? '#94a3b8' : '#6b7280'} />
+          </a>
+          
+          <a href="https://kr.investing.com/commodities/copper-news" target="_blank" rel="noopener noreferrer" style={{...styles.newsItem, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px'}}>
+            <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}><span style={{fontSize: '20px'}}>🌐</span><div><div style={{color: darkMode ? 'white' : '#111827', fontSize: '14px', fontWeight: '600'}}>구리 뉴스 (한국어)</div><div style={{color: darkMode ? '#94a3b8' : '#6b7280', fontSize: '11px'}}>Investing.com 한국어 뉴스</div></div></div>
+            <ExternalLink size={16} color={darkMode ? '#94a3b8' : '#6b7280'} />
+          </a>
+          
+          <a href="https://finance.yahoo.com/quote/HG=F/news/" target="_blank" rel="noopener noreferrer" style={{...styles.newsItem, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
+            <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}><span style={{fontSize: '20px'}}>🇺🇸</span><div><div style={{color: darkMode ? 'white' : '#111827', fontSize: '14px', fontWeight: '600'}}>구리 뉴스 (영어)</div><div style={{color: darkMode ? '#94a3b8' : '#6b7280', fontSize: '11px'}}>Yahoo Finance 영어 뉴스</div></div></div>
+            <ExternalLink size={16} color={darkMode ? '#94a3b8' : '#6b7280'} />
+          </a>
+        </div>
+
+        {/* 추가 정보 버튼 3개 */}
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '16px'}}>
+          <button onClick={() => setShowStocksGuide(!showStocksGuide)} style={{padding: '14px 8px', borderRadius: '12px', border: `2px solid ${showStocksGuide ? '#3b82f6' : (darkMode ? '#334155' : '#e5e7eb')}`, backgroundColor: showStocksGuide ? (darkMode ? '#1e3a8a' : '#dbeafe') : (darkMode ? '#1e293b' : 'white'), color: showStocksGuide ? '#3b82f6' : (darkMode ? 'white' : '#111827'), fontSize: '13px', fontWeight: '600', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px'}}>
+            <span style={{fontSize: '24px'}}>📋</span>
+            <span>종목 가이드</span>
+          </button>
+          <button onClick={() => setShowPortfolio(!showPortfolio)} style={{padding: '14px 8px', borderRadius: '12px', border: `2px solid ${showPortfolio ? '#22c55e' : (darkMode ? '#334155' : '#e5e7eb')}`, backgroundColor: showPortfolio ? (darkMode ? '#14532d' : '#dcfce7') : (darkMode ? '#1e293b' : 'white'), color: showPortfolio ? '#22c55e' : (darkMode ? 'white' : '#111827'), fontSize: '13px', fontWeight: '600', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px'}}>
+            <span style={{fontSize: '24px'}}>💼</span>
+            <span>포트폴리오</span>
+          </button>
+          <button onClick={() => setShowInvestGuide(!showInvestGuide)} style={{padding: '14px 8px', borderRadius: '12px', border: `2px solid ${showInvestGuide ? '#f59e0b' : (darkMode ? '#334155' : '#e5e7eb')}`, backgroundColor: showInvestGuide ? (darkMode ? '#78350f' : '#fef3c7') : (darkMode ? '#1e293b' : 'white'), color: showInvestGuide ? '#f59e0b' : (darkMode ? 'white' : '#111827'), fontSize: '13px', fontWeight: '600', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px'}}>
+            <span style={{fontSize: '24px'}}>📚</span>
+            <span>투자 가이드</span>
+          </button>
+        </div>
+
+        {/* 종목 가이드 내용 */}
+        {showStocksGuide && (
+        <>
+          <div style={styles.card}>
+            <h3 style={{...styles.sectionTitle, marginBottom: '16px'}}>✅ 구리 관련 ETF / ETN</h3>
+            <p style={{fontSize: '12px', color: darkMode ? '#94a3b8' : '#6b7280', marginBottom: '16px'}}>구리 산업 전체를 묶어서 투자하는 상품</p>
+            <div style={{overflowX: 'auto'}}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>투자 대상</th>
+                    <th style={styles.th}>대표 상품</th>
+                    <th style={styles.th}>티커</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td style={styles.td}>구리 광산/생산 기업 ETF</td><td style={styles.td}>Global X Copper Miners ETF</td><td style={{...styles.td, fontWeight: 'bold', color: '#3b82f6'}}>COPX</td></tr>
+                  <tr><td style={styles.td}>구리 채굴 ETF (대체)</td><td style={styles.td}>Sprott Copper Miners ETF</td><td style={{...styles.td, fontWeight: 'bold', color: '#3b82f6'}}>COPP</td></tr>
+                  <tr><td style={styles.td}>구리 선물 기반 ETF</td><td style={styles.td}>미국 구리 선물 추종 ETF</td><td style={{...styles.td, fontWeight: 'bold', color: '#3b82f6'}}>CPER</td></tr>
+                  <tr><td style={styles.td}>iShares 구리/금속 마이닝 ETF</td><td style={styles.td}>광산 포함 ETF</td><td style={{...styles.td, fontWeight: 'bold', color: '#3b82f6'}}>ICOP</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div style={{marginTop: '12px', padding: '10px', backgroundColor: darkMode ? '#1e3a8a' : '#dbeafe', borderRadius: '8px', fontSize: '12px', color: darkMode ? '#93c5fd' : '#1e40af'}}>
+              ⭐ COPX는 전세계 구리 채굴/생산 기업 주식 바스켓 ETF로 대표적임<br/>→ 여러 광산사 주식을 한 번에 담아 분산 효과 있어요
+            </div>
+          </div>
+
+          <div style={styles.card}>
+            <h3 style={{...styles.sectionTitle, marginBottom: '16px'}}>🪙 구리 광산·채굴 관련 개별주</h3>
+            <p style={{fontSize: '12px', color: darkMode ? '#94a3b8' : '#6b7280', marginBottom: '16px'}}>ETF가 담고 있거나 업계에서 대표적으로 꼽히는 종목들</p>
+            <div style={{overflowX: 'auto'}}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>기업명</th>
+                    <th style={styles.th}>티커</th>
+                    <th style={styles.th}>설명</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td style={styles.td}>Freeport-McMoRan</td><td style={{...styles.td, fontWeight: 'bold', color: '#22c55e'}}>FCX</td><td style={styles.td}>미국 대표 구리·금 채굴 (세계 최대급)</td></tr>
+                  <tr><td style={styles.td}>Southern Copper</td><td style={{...styles.td, fontWeight: 'bold', color: '#22c55e'}}>SCCO</td><td style={styles.td}>미국/라틴아메리카 대형 구리 생산사</td></tr>
+                  <tr><td style={styles.td}>KGHM Polska Miedz</td><td style={{...styles.td, fontWeight: 'bold', color: '#22c55e'}}>KGH</td><td style={styles.td}>폴란드 구리 생산사, COPX 주요 편입</td></tr>
+                  <tr><td style={styles.td}>Lundin Mining</td><td style={{...styles.td, fontWeight: 'bold', color: '#22c55e'}}>LUN</td><td style={styles.td}>캐나다 구리/금속 채굴 기업</td></tr>
+                  <tr><td style={styles.td}>Antofagasta plc</td><td style={{...styles.td, fontWeight: 'bold', color: '#22c55e'}}>ANTO</td><td style={styles.td}>칠레 광산 기업, 구리 생산 비중 큼</td></tr>
+                  <tr><td style={styles.td}>First Quantum</td><td style={{...styles.td, fontWeight: 'bold', color: '#22c55e'}}>FM</td><td style={styles.td}>캐나다 구리·니켈 등 광산업체</td></tr>
+                  <tr><td style={styles.td}>Teck Resources</td><td style={{...styles.td, fontWeight: 'bold', color: '#22c55e'}}>TECK</td><td style={styles.td}>캐나다 금속/에너지 광산사</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div style={{marginTop: '12px', padding: '10px', backgroundColor: darkMode ? '#14532d' : '#dcfce7', borderRadius: '8px', fontSize: '12px', color: darkMode ? '#86efac' : '#166534'}}>
+              💡 이들 기업은 글로벌 구리 ETF(COPX/COPP)에 상위 편입 비중으로 포함됩니다
+            </div>
+          </div>
+        </>
+        )}
+
+        {/* 포트폴리오 내용 */}
+        {showPortfolio && (
+        <>
+          <div style={styles.card}>
+            <h3 style={{...styles.sectionTitle, marginBottom: '16px'}}>🐢 구리 섹터 혼합 포트폴리오 예시</h3>
+            <div style={{overflowX: 'auto'}}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>구분</th>
+                    <th style={styles.th}>투자 대상</th>
+                    <th style={styles.th}>티커</th>
+                    <th style={styles.th}>비중</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td style={styles.td}>국내 ETF</td><td style={styles.td}>KODEX 구리선물(H)</td><td style={{...styles.td, fontWeight: 'bold'}}>229240</td><td style={{...styles.td, color: '#3b82f6', fontWeight: 'bold'}}>20%</td></tr>
+                  <tr><td style={styles.td}>국내 ETF</td><td style={styles.td}>TIGER 구리선물(H)</td><td style={{...styles.td, fontWeight: 'bold'}}>302430</td><td style={{...styles.td, color: '#3b82f6', fontWeight: 'bold'}}>10%</td></tr>
+                  <tr><td style={styles.td}>해외 ETF</td><td style={styles.td}>Global X Copper Miners</td><td style={{...styles.td, fontWeight: 'bold'}}>COPX</td><td style={{...styles.td, color: '#3b82f6', fontWeight: 'bold'}}>20%</td></tr>
+                  <tr><td style={styles.td}>해외 ETF</td><td style={styles.td}>Sprott Copper Miners</td><td style={{...styles.td, fontWeight: 'bold'}}>COPP</td><td style={{...styles.td, color: '#3b82f6', fontWeight: 'bold'}}>10%</td></tr>
+                  <tr><td style={styles.td}>개별주</td><td style={styles.td}>Freeport-McMoRan</td><td style={{...styles.td, fontWeight: 'bold'}}>FCX</td><td style={{...styles.td, color: '#3b82f6', fontWeight: 'bold'}}>10%</td></tr>
+                  <tr><td style={styles.td}>개별주</td><td style={styles.td}>Southern Copper</td><td style={{...styles.td, fontWeight: 'bold'}}>SCCO</td><td style={{...styles.td, color: '#3b82f6', fontWeight: 'bold'}}>5%</td></tr>
+                  <tr><td style={styles.td}>국내 수혜주</td><td style={styles.td}>풍산</td><td style={{...styles.td, fontWeight: 'bold'}}>103140</td><td style={{...styles.td, color: '#3b82f6', fontWeight: 'bold'}}>5%</td></tr>
+                  <tr><td style={styles.td}>현금/단기채</td><td style={styles.td}>MMF / 단기채 ETF</td><td style={{...styles.td, fontWeight: 'bold'}}>-</td><td style={{...styles.td, color: '#3b82f6', fontWeight: 'bold'}}>10%</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div style={styles.card}>
+            <h3 style={{...styles.sectionTitle, marginBottom: '16px'}}>🔄 인버스 포함 포트폴리오</h3>
+            <p style={{fontSize: '12px', color: darkMode ? '#94a3b8' : '#6b7280', marginBottom: '16px'}}>하락장 대비 인버스 ETF 포함 구성</p>
+            <div style={{overflowX: 'auto'}}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>구분</th>
+                    <th style={styles.th}>투자 대상</th>
+                    <th style={styles.th}>티커</th>
+                    <th style={styles.th}>비중</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td style={styles.td}>국내 ETF</td><td style={styles.td}>KODEX 구리선물(H)</td><td style={{...styles.td, fontWeight: 'bold'}}>229240</td><td style={{...styles.td, color: '#22c55e', fontWeight: 'bold'}}>20%</td></tr>
+                  <tr><td style={{...styles.td, color: '#ef4444'}}>인버스 ETF</td><td style={styles.td}>KBSTAR 구리선물인버스</td><td style={{...styles.td, fontWeight: 'bold'}}>305720</td><td style={{...styles.td, color: '#ef4444', fontWeight: 'bold'}}>10%</td></tr>
+                  <tr><td style={styles.td}>해외 ETF</td><td style={styles.td}>COPX</td><td style={{...styles.td, fontWeight: 'bold'}}>COPX</td><td style={{...styles.td, color: '#22c55e', fontWeight: 'bold'}}>15%</td></tr>
+                  <tr><td style={styles.td}>개별주</td><td style={styles.td}>Freeport-McMoRan</td><td style={{...styles.td, fontWeight: 'bold'}}>FCX</td><td style={{...styles.td, color: '#22c55e', fontWeight: 'bold'}}>10%</td></tr>
+                  <tr><td style={styles.td}>현금/단기채</td><td style={styles.td}>MMF</td><td style={{...styles.td, fontWeight: 'bold'}}>-</td><td style={{...styles.td, color: '#22c55e', fontWeight: 'bold'}}>10%</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div style={{marginTop: '12px', padding: '10px', backgroundColor: darkMode ? '#7c2d12' : '#fef3c7', borderRadius: '8px', fontSize: '12px', color: darkMode ? '#fed7aa' : '#92400e'}}>
+              ⚠️ 인버스 ETF는 구리 가격 하락 시 수익, 장기보다는 단기/중기 전략용
+            </div>
+          </div>
+        </>
+        )}
+
+        {/* 투자 가이드 내용 */}
+        {showInvestGuide && (
+        <>
+          <div style={{...styles.card, background: darkMode ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)'}}>
+            <h3 style={{color: darkMode ? 'white' : '#92400e', fontWeight: 'bold', fontSize: '16px', marginBottom: '12px'}}>🔰 초보자용 5줄 요약 체크리스트</h3>
+            <div style={{fontSize: '13px', color: darkMode ? 'white' : '#78350f', lineHeight: '2'}}>
+              <div>• 달러 약세(DXY↓) → 구리 강세 가능 ↑</div>
+              <div>• 미국 금리 인하 기대↑ → 구리 ↑</div>
+              <div>• 중국 제조업 PMI {'>'} 50 → 수요↑ → 구리 ↑</div>
+              <div>• LME 구리 재고 감소 → 공급 부족 → 구리 ↑</div>
+              <div style={{marginTop: '8px', fontSize: '11px', opacity: 0.9}}>※ 위 3요소(달러·중국·재고)가 구리의 전부라고 봐도 됨</div>
+            </div>
+          </div>
+
+          <div style={styles.card}>
+            <h3 style={{...styles.sectionTitle, marginBottom: '16px'}}>🔴 구리선물 ETF 실전 매매 기준</h3>
+            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px'}}>
+              <div style={{padding: '12px', backgroundColor: darkMode ? '#14532d' : '#dcfce7', borderRadius: '8px'}}>
+                <div style={{fontWeight: 'bold', color: darkMode ? '#86efac' : '#166534', marginBottom: '8px'}}>매수 타이밍</div>
+                <div style={{fontSize: '12px', color: darkMode ? '#bbf7d0' : '#15803d', lineHeight: '1.8'}}>
+                  <div>🟢 달러 약세 포착</div>
+                  <div>🟢 중국 PMI 50 이상</div>
+                  <div>🟢 LME 재고 감소</div>
+                </div>
+              </div>
+              <div style={{padding: '12px', backgroundColor: darkMode ? '#7c2d12' : '#fee2e2', borderRadius: '8px'}}>
+                <div style={{fontWeight: 'bold', color: darkMode ? '#fca5a5' : '#dc2626', marginBottom: '8px'}}>매도 타이밍</div>
+                <div style={{fontSize: '12px', color: darkMode ? '#fecaca' : '#b91c1c', lineHeight: '1.8'}}>
+                  <div>🔴 달러 105 이상</div>
+                  <div>🔴 PMI 50 아래로</div>
+                  <div>🔴 LME 재고 증가</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={styles.card}>
+            <h3 style={{...styles.sectionTitle, marginBottom: '16px'}}>🕐 구리 가격 5가지 핵심 변수</h3>
+            <div style={{display: 'grid', gap: '8px'}}>
+              {[
+                { icon: '💵', name: 'DXY (달러지수)', desc: '달러 약세 시 구리 강세' },
+                { icon: '🏭', name: '중국 제조업 PMI', desc: '50 이상이면 수요 증가' },
+                { icon: '📦', name: 'LME 구리 재고', desc: '재고 감소 시 가격 상승' },
+                { icon: '🏛️', name: '미국 금리정책', desc: '금리 인하 기대 시 상승' },
+                { icon: '⚡', name: '전력난·광산 이슈', desc: '공급 차질 시 가격 급등' }
+              ].map((item, i) => (
+                <div key={i} style={{display: 'flex', alignItems: 'center', gap: '12px', padding: '10px', backgroundColor: darkMode ? '#0f172a' : '#f3f4f6', borderRadius: '8px'}}>
+                  <span style={{fontSize: '20px'}}>{item.icon}</span>
+                  <div>
+                    <div style={{fontWeight: 'bold', color: darkMode ? 'white' : '#111827', fontSize: '13px'}}>{item.name}</div>
+                    <div style={{fontSize: '11px', color: darkMode ? '#94a3b8' : '#6b7280'}}>{item.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={styles.card}>
+            <h3 style={{...styles.sectionTitle, marginBottom: '16px'}}>📊 구리 전망 (2025~2035)</h3>
+            <div style={{overflowX: 'auto'}}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>기관</th>
+                    <th style={styles.th}>기간</th>
+                    <th style={styles.th}>가격 전망</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td style={styles.td}>J.P. Morgan</td><td style={styles.td}>2025→2026</td><td style={styles.td}>$10,875 → $12,500/톤</td></tr>
+                  <tr><td style={styles.td}>Goldman Sachs</td><td style={styles.td}>2026</td><td style={styles.td}>평균 $10,710</td></tr>
+                  <tr><td style={styles.td}>Grand View</td><td style={styles.td}>2025→2030</td><td style={styles.td}>$248B → $339.9B</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div style={{marginTop: '12px', padding: '10px', backgroundColor: darkMode ? '#1e3a8a' : '#dbeafe', borderRadius: '8px', fontSize: '12px', color: darkMode ? '#93c5fd' : '#1e40af', textAlign: 'center'}}>
+              📈 차기 상승 사이클 2024-2027 예상
+            </div>
+          </div>
+        </>
+        )}
+
+        {/* 상관관계 */}
+        <div style={styles.card}>
+          <h3 style={styles.sectionTitle}>원자재 상관관계 (참고용)</h3>
+          <p style={{fontSize: '11px', color: darkMode ? '#94a3b8' : '#6b7280', margin: '0 0 12px 0'}}>※ 과거 평균 기준, 실시간 아님<br/>(1에 가까울수록 구리와 함께 움직일 확률 높음)</p>
+          <ResponsiveContainer width="100%" height={140}><BarChart data={correlationData}><CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#334155' : '#e5e7eb'} /><XAxis dataKey="name" stroke={darkMode ? '#94a3b8' : '#6b7280'} style={{fontSize: 10}} /><YAxis stroke={darkMode ? '#94a3b8' : '#6b7280'} domain={[0, 1]} style={{fontSize: 10}} /><Tooltip contentStyle={{ backgroundColor: darkMode ? '#1e293b' : '#fff', fontSize: 11 }} /><Bar dataKey="correlation" fill="#3b82f6" /></BarChart></ResponsiveContainer>
+          <div style={{marginTop: '12px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px'}}>{correlationData.map((item, i) => <div key={i} style={{...styles.metricCard, cursor: 'default', padding: '8px'}}><div style={{fontSize: '11px', color: darkMode ? '#94a3b8' : '#6b7280', marginBottom: '4px'}}>{item.name}</div><div style={{fontSize: '16px', fontWeight: 'bold', color: darkMode ? 'white' : '#111827'}}>${item.price}</div></div>)}</div>
+        </div>
+
+        {/* 푸터 */}
+        <div style={{marginTop: '24px', paddingTop: '20px', borderTop: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`}}>
+          <button onClick={() => setShowAppGuide(!showAppGuide)} style={{width: '100%', padding: '14px', borderRadius: '10px', border: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`, backgroundColor: darkMode ? '#1e293b' : 'white', color: darkMode ? 'white' : '#111827', fontSize: '15px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '16px'}}>💡 앱 소개 {showAppGuide ? <ChevronUp size={18} /> : <ChevronDown size={18} />}</button>
+          {showAppGuide && (
+            <div style={{...styles.card, backgroundColor: darkMode ? '#0f172a' : '#f9fafb', marginBottom: '16px'}}>
+              <div style={{backgroundColor: darkMode ? '#1e3a8a' : '#dbeafe', padding: '14px', borderRadius: '8px', marginBottom: '20px', border: `1px solid ${darkMode ? '#3b82f6' : '#93c5fd'}`}}><div style={{fontSize: '15px', fontWeight: '600', color: darkMode ? '#93c5fd' : '#1e40af', marginBottom: '10px'}}>📌 시작하기</div><div style={{fontSize: '13px', color: darkMode ? '#bfdbfe' : '#1e40af', lineHeight: '1.7'}}>앱을 시작하면 자동으로 최신 데이터를 불러옵니다. 수동 갱신은 🔄 버튼을 눌러주세요.<br/><br/><span style={{fontSize: '11px', opacity: 0.8}}>* 구리/금/아연 가격, 달러 인덱스, RSI, MACD는 실시간 데이터입니다.<br/>* 중국 PMI, 재고량은 월간/주간 발표 데이터입니다.<br/>* 주말에는 금요일 마감가가 표시됩니다.</span></div></div>
+              <div style={{marginBottom: '20px'}}><div style={{fontSize: '15px', fontWeight: '600', color: darkMode ? '#60a5fa' : '#2563eb', marginBottom: '12px'}}>📊 점수 기준</div><div style={{fontSize: '13px', color: darkMode ? '#e2e8f0' : '#374151', lineHeight: '1.8'}}><div style={{marginBottom: '6px'}}>• <strong style={{color: '#22c55e'}}>80점 이상</strong>: 적극 매수 권장</div><div style={{marginBottom: '6px'}}>• <strong style={{color: '#22c55e'}}>60~79점</strong>: 매수 적합</div><div style={{marginBottom: '6px'}}>• <strong style={{color: '#eab308'}}>40~59점</strong>: 분할 매수 고려</div><div>• <strong style={{color: '#ef4444'}}>40점 미만</strong>: 관망 권장</div></div></div>
+              <div style={{marginBottom: '20px'}}><div style={{fontSize: '15px', fontWeight: '600', color: darkMode ? '#60a5fa' : '#2563eb', marginBottom: '12px'}}>⚙️ 설정 방법</div><div style={{fontSize: '13px', color: darkMode ? '#e2e8f0' : '#374151', lineHeight: '1.8'}}><div style={{marginBottom: '6px'}}>• [설정하기] 버튼으로 설정 열기</div><div style={{marginBottom: '6px'}}>• RSI 매수/매도 임계값 조절 가능</div><div style={{marginBottom: '6px'}}>• 지표별 ON/OFF로 원하는 지표만 반영</div><div>• 변경 후 <strong>[저장하기]</strong> 필수!</div></div></div>
+              <div style={{backgroundColor: darkMode ? '#7c2d12' : '#fef3c7', padding: '14px', borderRadius: '8px', border: `1px solid ${darkMode ? '#9a3412' : '#fcd34d'}`}}><div style={{fontSize: '15px', fontWeight: '600', color: darkMode ? '#fed7aa' : '#92400e', marginBottom: '10px'}}>⚠️ 주의사항</div><div style={{fontSize: '12px', color: darkMode ? '#fed7aa' : '#92400e', lineHeight: '1.7'}}>본 앱은 <strong>투자 참고용</strong>이며, 실제 투자 판단은 본인 책임입니다. 과거 데이터 기반 분석은 미래 수익을 보장하지 않습니다.</div></div>
+            </div>
+          )}
+          <div style={{textAlign: 'center', padding: '16px 0', color: darkMode ? '#64748b' : '#9ca3af', fontSize: '13px'}}><div style={{fontWeight: '600', marginBottom: '6px', color: darkMode ? '#94a3b8' : '#6b7280'}}>Today_tab</div><div><a href="mailto:contact@todaytab.com" style={{color: darkMode ? '#64748b' : '#9ca3af', textDecoration: 'none'}}>contact@todaytab.com</a></div></div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+export default App;

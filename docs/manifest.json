@@ -1,0 +1,30 @@
+{
+  "name": "구리 지표",
+  "short_name": "구리지표",
+  "description": "구리 매수 시점 분석 앱",
+  "start_url": "/copper-vite-app/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/copper-vite-app/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/copper-vite-app/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
+```
+
+---
+
+**파일 위치:**
+```
+copper-vite-app/
+└── public/
+    └── manifest.json  ← 여기에 만들기
