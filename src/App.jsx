@@ -64,8 +64,10 @@ const [silverEtfChange, setSilverEtfChange] = useState('0%');
   const [signalHistory, setSignalHistory] = useState([]);
   
   const krStocks = [
-    { type: 'ETF', name: 'KODEX 은선물(H)', code: '144600', url: 'https://finance.naver.com/item/main.nhn?code=144600' },
-    { type: 'ETF', name: 'TIGER 은선물(H)', code: '319640', url: 'https://finance.naver.com/item/main.nhn?code=319640' },
+    { type: 'ETF', name: 'KODEX 은선물(H)', code: '144600', url: 'https://finance.naver.com/item/main.naver?code=144600' },
+
+
+    { type: 'ETF', name: 'TIGER 골드선물(H)', code: '319640', url: 'https://finance.naver.com/item/main.nhn?code=319640' },
     { type: '해외ETF', name: 'SLV - iShares Silver Trust', code: 'SLV', url: 'https://finance.yahoo.com/quote/SLV/' },
     { type: '해외ETF', name: 'SIVR - abrdn Physical Silver', code: 'SIVR', url: 'https://finance.yahoo.com/quote/SIVR/' },
     { type: '해외주식', name: 'PAAS - Pan American Silver', code: 'PAAS', url: 'https://finance.yahoo.com/quote/PAAS/' }
